@@ -1,4 +1,4 @@
-import pandas as pdimport pandas as pd
+import pandas as pd
 import joblib
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -71,9 +71,6 @@ def predict():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# This line is for local development and will be ignored by Gunicorn
 if __name__ == '__main__':
-    # Run the server on localhost port 5000
     app.run(port=5000)
-
-
-    print("Invalid input. Annual income cannot be zero.")
