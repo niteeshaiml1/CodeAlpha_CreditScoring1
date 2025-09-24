@@ -1,100 +1,79 @@
-import pandas as pd
-import numpy as np
+import pandas as pdimport pandas as pd
 import joblib
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 
+# --- Important: This is the file that serves your model! ---
 
-# Set a random seed for reproducibility
-np.random.seed(42)
+# Initialize the Flask application
+app = Flask(__name__)
+# Enable CORS to allow your HTML file to communicate with the server
+CORS(app)
 
-# --- Data Generation ---
-data_size = 1500
-data = {
-    'income': np.random.normal(55000, 25000, data_size),
-    'loan_amount': np.random.normal(18000, 7000, data_size),
-    'credit_score': np.random.randint(550, 850, data_size),
-    'age': np.random.randint(25, 65, data_size),
-    'payment_history_missed': np.random.randint(0, 5, data_size)
-}
-df = pd.DataFrame(data)
-
-# --- Feature Engineering ---
-# A crucial feature for credit risk is the debt-to-income ratio
-df['debt_to_income_ratio'] = df['loan_amount'] / df['income']
-
-# Define the target variable: 'creditworthiness'
-# A high debt-to-income ratio or low credit score indicates higher risk (1)
-df['creditworthiness'] = ((df['debt_to_income_ratio'] > 0.45) | (df['credit_score'] < 650)).astype(int)
-
-# Clean up infinite values that might result from income=0
-df.replace([np.inf, -np.inf], np.nan, inplace=True)
-df.dropna(inplace=True)
-
-# Select the features and target for training
-features = ['income', 'debt_to_income_ratio', 'credit_score', 'age', 'payment_history_missed']
-target = 'creditworthiness'
-X = df[features]
-y = df[target]
-
-# Split the data and train the model
-X_train, _, y_train, _ = train_test_split(X, y, test_size=0.25, random_state=42, stratify=y)
-model = LogisticRegression(random_state=42, solver='liblinear')
-model.fit(X_train, y_train)
-
-# Save the trained model to a file
-joblib.dump(model, 'credit_scoring_model.pkl')
-print("Model trained and saved as 'credit_scoring_model.pkl'")
-
-# Load the trained model from the file
+# Load the trained model from the file once, when the server starts
 try:
     model = joblib.load('credit_scoring_model.pkl')
-    print("Model loaded successfully.")
+    print("Model loaded successfully. The server is ready.")
 except FileNotFoundError:
     print("Error: The model file 'credit_scoring_model.pkl' was not found.")
-    print("Please run the 'Model Training and Saving' script first to train and save the model.")
+    print("Please run your original Python script first to train and save the model.")
     exit()
 
-# Get user input for a new applicant
-print("\nEnter applicant details:")
-try:
-    income = float(input("Enter annual income: "))
-    loan_amount = float(input("Enter requested loan amount: "))
-    credit_score = int(input("Enter credit score: "))
-    age = int(input("Enter age: "))
-    payment_history_missed = int(input("Enter number of missed payments: "))
+@app.route('/predict', methods=['POST'])
+def predict():
+    """
+    This function is the API endpoint that receives data from the frontend,
+    makes a prediction, and returns the result as JSON.
+    """
+    try:
+        # Get the JSON data sent from the HTML form
+        data = request.get_json(force=True)
+        
+        # Extract features from the received data
+        income = float(data['income'])
+        loan_amount = float(data['loan_amount'])
+        credit_score = int(data['credit_score'])
+        age = int(data['age'])
+        payment_history_missed = int(data['payment_history_missed'])
 
-    # Calculate the derived feature
-    debt_to_income_ratio = loan_amount / income
+        # Calculate the derived feature, just like in your training script
+        if income == 0:
+            return jsonify({'error': 'Annual income cannot be zero.'}), 400
+        debt_to_income_ratio = loan_amount / income
 
-    # Create a DataFrame for the new applicant with the correct features and order
-    new_applicant_data = {
-        'income': [income],
-        'debt_to_income_ratio': [debt_to_income_ratio],
-        'credit_score': [credit_score],
-        'age': [age],
-        'payment_history_missed': [payment_history_missed]
-    }
+        # Create a DataFrame for the new applicant with the correct features and order
+        X_new = pd.DataFrame({
+            'income': [income],
+            'debt_to_income_ratio': [debt_to_income_ratio],
+            'credit_score': [credit_score],
+            'age': [age],
+            'payment_history_missed': [payment_history_missed]
+        })
 
-    # Ensure the feature columns are in the correct order for the model
-    X_new = pd.DataFrame(new_applicant_data)
+        # Make a prediction using the loaded model
+        prediction = model.predict(X_new)
+        probabilities = model.predict_proba(X_new)
 
-    # Make a prediction
-    prediction = model.predict(X_new)
-    probabilities = model.predict_proba(X_new)
+        # Prepare the response data
+        predicted_class = "High Risk" if prediction[0] == 1 else "Low Risk"
+        high_risk_prob = float(probabilities[0][1])
+        low_risk_prob = float(probabilities[0][0])
+        
+        # Return the results as a JSON object
+        return jsonify({
+            'predicted_class': predicted_class,
+            'high_risk_prob': high_risk_prob,
+            'low_risk_prob': low_risk_prob
+        })
 
-    # Display the results
-    print("\n--- Prediction Result ---")
+    except ValueError:
+        return jsonify({'error': 'Invalid input. Please enter numeric values.'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-    predicted_class = "High Risk" if prediction[0] == 1 else "Low Risk"
-    high_risk_prob = probabilities[0][1] * 100
-    low_risk_prob = probabilities[0][0] * 100
+if __name__ == '__main__':
+    # Run the server on localhost port 5000
+    app.run(port=5000)
 
-    print(f"Predicted Creditworthiness: {predicted_class}")
-    print(f"Probability of being High Risk: {high_risk_prob:.2f}%")
-    print(f"Probability of being Low Risk: {low_risk_prob:.2f}%")
 
-except ValueError:
-    print("Invalid input. Please enter numeric values for all fields.")
-except ZeroDivisionError:
     print("Invalid input. Annual income cannot be zero.")
